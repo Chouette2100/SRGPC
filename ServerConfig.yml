@@ -1,0 +1,8 @@
+## DBサーバーのホスト名、指定しなければlocalhost
+#Dbhost:
+# データベース名
+Dbname:	${DBNAME}
+# データベースのログイン名とパスワード
+Dbuser:	${DBUSER}
+Dbpw:	${DBPW}
+

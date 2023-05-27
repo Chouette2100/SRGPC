@@ -1,0 +1,5 @@
+*.exe
+*.freebsd
+*.sh
+go.*
+SRGPC
