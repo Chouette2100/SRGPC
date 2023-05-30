@@ -6,6 +6,11 @@
         {
             "label": "go build",
             "type": "shell",
+            "options": {
+                "env": {
+                  "CGO_ENABLED": "0"
+                }
+            },
             "command": "go",
             "args": [
                 "build",

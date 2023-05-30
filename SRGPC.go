@@ -81,10 +81,11 @@ import (
 2.0C00		実行を指定した時間で打ち切るようにする。さくらインターネットのレンタルサーバでデーモンとみなされないための設定。
 020AD00	WaitNextMinute()を取り込みShowroomlibをimportしない。
 020AE00	ブロックランキングでEvent_url_keyに"?block_id=..."が付加されているときはこれを除いて貢献ランキングを取得する。
+020AE01	exsrapiの関数の戻り値の変更に対する対応の誤りを正す。
 
 */
 
-const version = "020AE00"
+const version = "020AE01"
 
 type Environment struct {
 	IntervalHour int
@@ -864,7 +865,7 @@ func main() {
 
 	exerr := exsrapi.LoadConfig("Environment.yml", &environment)
 	if exerr != nil {
-		log.Printf("exsrapi/LoadConfig() Error: %s\n", err.Error())
+		log.Printf("exsrapi/LoadConfig() Error: %s\n", exerr.Error())
 		log.Printf("Set IntervalMin to 99999.\n")
 		environment.IntervalHour = 99999
 	}
