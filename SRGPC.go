@@ -39,7 +39,7 @@ import (
 	"log"
 
 	//	"bufio"
-	"io"
+	//	"io"
 	//	"io/ioutil"
 	"os"
 
@@ -82,10 +82,11 @@ import (
 020AD00	WaitNextMinute()を取り込みShowroomlibをimportしない。
 020AE00	ブロックランキングでEvent_url_keyに"?block_id=..."が付加されているときはこれを除いて貢献ランキングを取得する。
 020AE01	exsrapiの関数の戻り値の変更に対する対応の誤りを正す。
+020AF00	標準出力へのログ出力をやめる。
 
 */
 
-const version = "020AE01"
+const version = "020AF00"
 
 type Environment struct {
 	IntervalHour int
@@ -847,8 +848,8 @@ func main() {
 		panic("cannnot open logfile: " + logfilename + err.Error())
 	}
 	defer logfile.Close()
-	//	log.SetOutput(logfile)
-	log.SetOutput(io.MultiWriter(logfile, os.Stdout))
+	log.SetOutput(logfile)
+	//	log.SetOutput(io.MultiWriter(logfile, os.Stdout))
 
 	log.Printf("\n")
 	log.Printf("\n")
