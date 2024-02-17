@@ -83,10 +83,11 @@ import (
 020AE00	ブロックランキングでEvent_url_keyに"?block_id=..."が付加されているときはこれを除いて貢献ランキングを取得する。
 020AE01	exsrapiの関数の戻り値の変更に対する対応の誤りを正す。
 020AF00	標準出力へのログ出力をやめる。
+020AF01	標準出力への出力を削除する。
 
 */
 
-const version = "020AF00"
+const version = "020AF01"
 
 type Environment struct {
 	IntervalHour int
@@ -695,8 +696,8 @@ func ExtractTask(
 
 	bmakesheet := true
 
-	fmt.Printf("%s ***************** ExtractTaskGroup() ****************\n", time.Now().Format("2006/1/2 15:04:05"))
-	defer fmt.Printf("%s ************* end of ExtractTaskGroup() *************\n", time.Now().Format("2006/1/2 15:04:05"))
+	log.Printf("%s ***************** ExtractTaskGroup() ****************\n", time.Now().Format("2006/1/2 15:04:05"))
+	defer log.Printf("%s ************* end of ExtractTaskGroup() *************\n", time.Now().Format("2006/1/2 15:04:05"))
 
 	hhn = 99
 	mmn = 99
@@ -787,7 +788,7 @@ Outerloop:
 
 		}
 		hhn, mmn, _ = WaitNextMinute()
-		fmt.Printf("** %02d %02d\n", hhn, mmn)
+		//	fmt.Printf("** %02d %02d\n", hhn, mmn)
 
 		if ( hhn + 1 ) % environment.IntervalHour == 0 && mmn == 0 {
 			log.Printf(" End of ExtractTaskGroup() t=%s\n", time.Now().Format("2006/1/2 15:04:05"))
