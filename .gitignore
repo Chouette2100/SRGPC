@@ -1,5 +1,9 @@
+*.json
+*.txt
 *.exe
 *.freebsd
 *.sh
+_cookies
 go.*
 SRGPC
+SRGPC.2024*

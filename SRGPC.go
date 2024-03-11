@@ -1,4 +1,8 @@
-/*
+/*!
+Copyright © 2022 chouette.21.00@gmail.com
+Released under the MIT license
+https://opensource.org/licenses/mit-license.php
+
 	SHOWROOMのイベント貢献ランキングを取得する関数の使用例です。
 
 	使い方
@@ -23,9 +27,6 @@
 			https://qiita.com/ryo_naka/items/a08d70f003fac7fb0808
 			※ ざくっとした内容ですがGO言語のインストールのところから書いてあります。
 			※ お時間のある方は系統的に書かれたものを探してじっくり勉強してください。
-
-
-
 */
 package main
 
@@ -58,6 +59,8 @@ import (
 	lsdp "github.com/deltam/go-lsd-parametrized"
 
 	"github.com/Chouette2100/exsrapi"
+	"github.com/Chouette2100/srapi"
+	//	"github.com/Chouette2100/srdblib"
 )
 
 /*
@@ -84,10 +87,13 @@ import (
 020AE01	exsrapiの関数の戻り値の変更に対する対応の誤りを正す。
 020AF00	標準出力へのログ出力をやめる。
 020AF01	標準出力への出力を削除する。
+030AA04	貢献ポイントの取得にAPIを用い、リスナーの突き合わせにはuseridを用いる。
 
 */
 
-const version = "020AF01"
+const version = "030AA04"
+
+const UseApi = true
 
 type Environment struct {
 	IntervalHour int
@@ -143,40 +149,105 @@ func (e EventRanking) Less(i, j int) bool {
 */
 
 /*
-	GetPointsCont()
-	イベントページのURLと配信者さんのIDから、イベント貢献ランキングのリストを取得します。
+GetPointsContByApi()
+イベントページのURLと配信者さんのIDから、イベント貢献ランキングのリストを取得します。
 
-	引数
-	EvnetName	string	イベント名、下記イベントページURLの"event_id"の部分
-		https://www.showroom-live.com/event/event_id
-	ID_Account	string	配信者さんのID
-		SHOWROOMへの登録順を示すと思われる6桁(以下)の数字です。アカウントとは違います。
+引数
+EvnetName	string	イベント名、下記イベントページURLの"event_id"の部分
 
-	戻り値
-	TotaScore	int
-	eventranking	struct
-		Rank	int		リスナーの順位
-		Point	int		リスナーの貢献ポイント
-		Listner string	リスナーの名前
-	status		int
+	https://www.showroom-live.com/event/event_id
 
-	***
-	リスナーさんの日々のあるいは配信ごとの貢献ポイントの推移がすぐにわかれば配信者さんもいろいろ手の打ちよう(?)が
-	ありそうですが、「リスナーの名前」というのはリスナーさんが自由に設定・変更できるので貢献ポイントを追いかけて
-	行くのはけっこうたいへんです。
-	このプログラムではLevenshtein距離による類似度のチェックや貢献ランキングの特性を使ってニックネームの変更を追尾しています。
-	リスナーさんのuseridがわかればいいのですが、いろいろと面倒なところがあります。
+ID_Account	string	配信者さんのID
 
-	「レーベンシュタイン距離 - Wikipedia」
-	https://ja.wikipedia.org/wiki/%E3%83%AC%E3%83%BC%E3%83%99%E3%83%B3%E3%82%B7%E3%83%A5%E3%82%BF%E3%82%A4%E3%83%B3%E8%B7%9D%E9%9B%A2
+	SHOWROOMへの登録順を示すと思われる6桁(以下)の数字です。アカウントとは違います。
 
-	「カスタマイズしやすい重み付きレーベンシュタイン距離ライブラリをGoで書きました - サルノオボエガキ」
-	https://deltam.blogspot.com/2018/10/go.html
+戻り値
+TotaScore	int
+eventranking	struct
 
-	貢献ポイントをこまめに記録しておくと、減算ポイントが発生したときの原因アカウントの特定に使えないこともないです。
-	（実際やってみるとわかるのですが、これはこれでなかなかたいへんです）
-	なお、原因アカウントの特定、というのは犯人探しというような意味で言ってるわけじゃありませんので念のため。
+	Rank	int		リスナーの順位
+	Point	int		リスナーの貢献ポイント
+	Listner string	リスナーの名前
 
+status		int
+*/
+func GetPointsContByApi(
+	client *http.Client,
+	ieventid int,
+	roomid int,
+) (
+	eventranking ShowroomDBlib.EventRanking,
+	uidmap map[int]int,
+	err error,
+) {
+
+	pranking, err := srapi.ApiEventContribution_ranking(client, ieventid, roomid)
+	if err != nil {
+		err = fmt.Errorf("ApiEventContribution_ranking() failed. %v", err)
+		return
+	}
+
+	if len(pranking.Ranking) == 0 {
+		err = fmt.Errorf("ApiEventContribution_ranking() returned empty ranking")
+		return
+	}
+
+	uidmap = make(map[int]int)
+	for i, r := range pranking.Ranking {
+		er := ShowroomDBlib.EventRank{
+			Order:   i+1,
+			Rank:    r.Rank,
+			Listner: r.Name,
+			Point:   r.Point,
+			LsnID:   r.UserID,
+		}
+		eventranking = append(eventranking, er)
+
+		uidmap[r.UserID] = i
+	}
+
+	return
+}
+
+/*
+GetPointsCont()
+イベントページのURLと配信者さんのIDから、イベント貢献ランキングのリストを取得します。
+
+引数
+EvnetName	string	イベント名、下記イベントページURLの"event_id"の部分
+
+	https://www.showroom-live.com/event/event_id
+
+ID_Account	string	配信者さんのID
+
+	SHOWROOMへの登録順を示すと思われる6桁(以下)の数字です。アカウントとは違います。
+
+戻り値
+TotaScore	int
+eventranking	struct
+
+	Rank	int		リスナーの順位
+	Point	int		リスナーの貢献ポイント
+	Listner string	リスナーの名前
+
+status		int
+
+***
+リスナーさんの日々のあるいは配信ごとの貢献ポイントの推移がすぐにわかれば配信者さんもいろいろ手の打ちよう(?)が
+ありそうですが、「リスナーの名前」というのはリスナーさんが自由に設定・変更できるので貢献ポイントを追いかけて
+行くのはけっこうたいへんです。
+このプログラムではLevenshtein距離による類似度のチェックや貢献ランキングの特性を使ってニックネームの変更を追尾しています。
+リスナーさんのuseridがわかればいいのですが、いろいろと面倒なところがあります。
+
+「レーベンシュタイン距離 - Wikipedia」
+https://ja.wikipedia.org/wiki/%E3%83%AC%E3%83%BC%E3%83%99%E3%83%B3%E3%82%B7%E3%83%A5%E3%82%BF%E3%82%A4%E3%83%B3%E8%B7%9D%E9%9B%A2
+
+「カスタマイズしやすい重み付きレーベンシュタイン距離ライブラリをGoで書きました - サルノオボエガキ」
+https://deltam.blogspot.com/2018/10/go.html
+
+貢献ポイントをこまめに記録しておくと、減算ポイントが発生したときの原因アカウントの特定に使えないこともないです。
+（実際やってみるとわかるのですが、これはこれでなかなかたいへんです）
+なお、原因アカウントの特定、というのは犯人探しというような意味で言ってるわけじゃありませんので念のため。
 */
 func GetPointsCont(EventName, ID_Account string) (
 	TotalScore int,
@@ -212,9 +283,9 @@ func GetPointsCont(EventName, ID_Account string) (
 	}
 
 	/*
-	u := url.URL{}
-	u.Scheme = doc.Url.Scheme
-	u.Host = doc.Url.Host
+		u := url.URL{}
+		u.Scheme = doc.Url.Scheme
+		u.Host = doc.Url.Host
 	*/
 
 	//	各リスナーの情報を取得します。
@@ -462,6 +533,78 @@ func ReadListInSheet(
 	return
 }
 
+func CompareEventRankingByApi(
+	last_eventranking ShowroomDBlib.EventRanking,
+	new_eventranking ShowroomDBlib.EventRanking,
+	uidmap map[int] int,
+) (
+	final_eventranking ShowroomDBlib.EventRanking,
+	totalincremental int,
+) {
+
+	//	for j := 0; j < len(last_eventranking); j++ {
+	for j, ler := range last_eventranking {
+		if idx, ok := uidmap[ler.LsnID]; ok {
+					if ler.Point != -1 {
+						incremental := new_eventranking[idx].Point - ler.Point
+						totalincremental += incremental
+						last_eventranking[j].Incremental = incremental
+					} else {
+						last_eventranking[j].Incremental = -1
+					}
+					last_eventranking[j].Rank = new_eventranking[idx].Rank
+					last_eventranking[j].Point = new_eventranking[idx].Point
+					last_eventranking[j].Order = new_eventranking[idx].Order
+					if new_eventranking[idx].Listner == ler.Listner {
+							last_eventranking[j].Lastname = ""
+					} else {
+							last_eventranking[j].Listner = new_eventranking[idx].Listner
+							last_eventranking[j].Lastname = ler.Listner
+					}
+					new_eventranking[idx].Status = 1
+		} else {
+			//	同一のuseridのデータがみつからなかった。
+			last_eventranking[j].Point = -1
+			last_eventranking[j].Incremental = -1
+			last_eventranking[j].Status = -1
+			last_eventranking[j].Order = 999
+			last_eventranking[j].Lastname = ""
+			log.Printf("*****         【%s】  not found.\n", last_eventranking[j].Listner)
+
+		}
+	}
+	//	既存のランキングになかった新規のリスナーを既存のランキングに追加する。
+	//	ソートはしない。ソートするとExcelにあるデータと整合性がとれなくなる。
+	//	つまり、ソートはExcelで行う。
+	var eventrank ShowroomDBlib.EventRank
+	no := len(last_eventranking)
+	for _, ner := range(new_eventranking) {
+
+		if ner.Status != 1 {
+			eventrank.Order = no
+			no++
+			eventrank.Listner = ner.Listner
+			eventrank.Rank = ner.Rank
+			eventrank.Point = ner.Point
+			eventrank.Order = ner.Order
+			//	eventrank.T_LsnID = ner.Order + idx*1000
+			eventrank.T_LsnID = ner.LsnID
+			eventrank.LsnID = ner.LsnID
+			eventrank.Incremental = -1
+
+			incremental := ner.Point
+			totalincremental += incremental
+			eventrank.Incremental = incremental
+
+			last_eventranking = append(last_eventranking, eventrank)
+		}
+	}
+
+	final_eventranking = last_eventranking
+
+	return
+}
+
 func CompareEventRanking(
 	last_eventranking ShowroomDBlib.EventRanking,
 	new_eventranking ShowroomDBlib.EventRanking,
@@ -487,6 +630,9 @@ func CompareEventRanking(
 						last_eventranking[j].Incremental = incremental
 					} else {
 						last_eventranking[j].Incremental = -1
+					}
+					if new_eventranking[i].LsnID != 0 {
+						last_eventranking[j].LsnID = new_eventranking[i].LsnID
 					}
 					last_eventranking[j].Rank = new_eventranking[i].Rank
 					last_eventranking[j].Point = new_eventranking[i].Point
@@ -555,6 +701,9 @@ func CompareEventRanking(
 				} else {
 					last_eventranking[j].Incremental = -1
 				}
+				if new_eventranking[noasgn].LsnID != 0 {
+					last_eventranking[j].LsnID = new_eventranking[noasgn].LsnID
+				}
 				last_eventranking[j].Rank = new_eventranking[noasgn].Rank
 				last_eventranking[j].Point = new_eventranking[noasgn].Point
 				last_eventranking[j].Order = new_eventranking[noasgn].Order
@@ -614,6 +763,9 @@ func CompareEventRanking(
 			} else {
 				last_eventranking[j].Incremental = -1
 			}
+			if new_eventranking[first_n].LsnID != 0 {
+				last_eventranking[j].LsnID = new_eventranking[first_n].LsnID
+			}
 			last_eventranking[j].Rank = new_eventranking[first_n].Rank
 			last_eventranking[j].Point = new_eventranking[first_n].Point
 			last_eventranking[j].Order = new_eventranking[first_n].Order
@@ -667,7 +819,12 @@ func CompareEventRanking(
 			eventrank.Rank = new_eventranking[i].Rank
 			eventrank.Point = new_eventranking[i].Point
 			eventrank.Order = new_eventranking[i].Order
-			eventrank.T_LsnID = new_eventranking[i].Order + idx*1000
+			//	eventrank.T_LsnID = new_eventranking[i].Order + idx*1000
+			eventrank.T_LsnID = new_eventranking[i].LsnID
+			if new_eventranking[i].LsnID != 0 {
+				eventrank.LsnID = new_eventranking[i].LsnID
+			}
+
 			eventrank.Incremental = -1
 
 			incremental := new_eventranking[i].Point
@@ -680,6 +837,7 @@ func CompareEventRanking(
 
 	return last_eventranking, totalincremental
 }
+
 func ExtractTask(
 	environment *Environment,
 	/*
@@ -699,6 +857,13 @@ func ExtractTask(
 	log.Printf("%s ***************** ExtractTaskGroup() ****************\n", time.Now().Format("2006/1/2 15:04:05"))
 	defer log.Printf("%s ************* end of ExtractTaskGroup() *************\n", time.Now().Format("2006/1/2 15:04:05"))
 
+	client, cookiejar, err := exsrapi.CreateNewClient("")
+	if err != nil {
+		log.Printf("exsrapi.CeateNewClient(): %s", err.Error())
+		return //	エラーがあれば、ここで終了
+	}
+	defer cookiejar.Save()
+
 	hhn = 99
 	mmn = 99
 
@@ -707,21 +872,39 @@ func ExtractTask(
 
 Outerloop:
 	for {
-
+		//	毎分繰り返す。
 		for {
-
+			//	リスナー別貢献ポイントの算出が必要な配信枠がなくなるまで繰り返す
 			ndata, event_id, userno, sampletm1 := ShowroomDBlib.SelectEidUidFromTimetable()
 			if ndata <= 0 {
 				break
+			}
+
+			//	本来のイベントID（数字の方）を求めるためにイベント情報を抽出する。
+			peventinf, err := ShowroomDBlib.SelectFromEvent(event_id)
+			if err != nil {
+				log.Printf("SelectFromEvent(): %s", err.Error())
+				break Outerloop
 			}
 
 			room_id := fmt.Sprintf("%d", userno)
 
 			log.Printf(" ndata = %d event_id [%s]  userno =%d.\n", ndata, event_id, userno)
 
+			//	直近の配信枠後の貢献ポイントランキングを取得する。
 			log.Printf("------------------- new_eventranking --------------------\n")
-			//	totalscore, new_eventranking, _ := GetPointsCont(event_id, room_id)
-			_, new_eventranking, _ := GetPointsCont(event_id, room_id)
+			//	totalscore, new_eventranking, _ := GetPointsCont(ieventid, room_id)
+			var new_eventranking ShowroomDBlib.EventRanking
+			uidmap := make(map[int]int)
+			if UseApi {
+				new_eventranking, uidmap, err = GetPointsContByApi(client, peventinf.I_Event_ID, userno)
+				if err != nil {
+					log.Printf("GetPointsContByApi(): %s", err.Error())
+					break Outerloop
+				}
+			} else {
+				_, new_eventranking, _ = GetPointsCont(event_id, room_id)
+			}
 
 			/*
 				for i := 0; i < len(new_eventranking); i++ {
@@ -736,9 +919,11 @@ Outerloop:
 
 			ndata, maxts := ShowroomDBlib.SelectMaxTsFromEventrank(event_id, userno)
 			if ndata < 0 {
+				//	データが取得できない。データベースアクセスエラー。
 				log.Printf(" %d returned by SelectMaxTsFromEventrank()\n", ndata)
 				break Outerloop
 			} else if ndata > 0 {
+				//	前回配信枠のデータが存在するので、それをDBから抽出する。
 				last_eventranking, status = ShowroomDBlib.SelectEventRankingFromEventrank(event_id, userno, maxts)
 			}
 			/*	*/
@@ -747,28 +932,42 @@ Outerloop:
 			}
 			/*	*/
 
+			//	ランキングを比較する。
+			var final_eventranking ShowroomDBlib.EventRanking
+			var totalincremental int
 			log.Printf("------------------- compare --------------------\n")
-			idx := ShowroomDBlib.SelectMaxTlsnidFromEventranking(event_id, userno) / 1000
-			if idx >= 1000 {
-				idx /= 1000
+				idx := ShowroomDBlib.SelectMaxTlsnidFromEventranking(event_id, userno) / 1000
+				if idx >= 1000 {
+					idx /= 1000
+				}
+				idx += 1
+			if len(last_eventranking) == 0 || new_eventranking[0].LsnID != 0 && last_eventranking[0].LsnID != 0 {	//	LsnIDを使わずに判別する方法は？
+				//	新旧データともにAPIで取得したランキングである。
+				final_eventranking, totalincremental = CompareEventRankingByApi(last_eventranking, new_eventranking, uidmap)
+			} else {
+				//	旧データがAPIで取得したデータではない。
+				final_eventranking, totalincremental = CompareEventRanking(last_eventranking, new_eventranking, idx)
 			}
-			idx += 1
-			final_eventranking, totalincremental := CompareEventRanking(last_eventranking, new_eventranking, idx)
 			log.Printf("------------------- final_eventranking --------------------\n")
 			for i := 0; i < len(final_eventranking); i++ {
 				if final_eventranking[i].Lastname != "" {
-					log.Printf("%3d\t%7d\t【%s】\t【%s】\r\n",
+					log.Printf("%3d%9d%9d%10d\t【%s】\t【%s】\r\n",
 						final_eventranking[i].Order,
+						final_eventranking[i].T_LsnID,
+						final_eventranking[i].LsnID,
 						final_eventranking[i].Point,
 						final_eventranking[i].Listner,
 						final_eventranking[i].Lastname)
 				} else {
-					log.Printf("%3d\t%7d\t【%s】\r\n",
+					log.Printf("%3d%9d%9d%10d\t【%s】\r\n",
 						final_eventranking[i].Order,
+						final_eventranking[i].T_LsnID,
+						final_eventranking[i].LsnID,
 						final_eventranking[i].Point,
 						final_eventranking[i].Listner)
 				}
 			}
+
 
 			if bmakesheet {
 
@@ -790,7 +989,7 @@ Outerloop:
 		hhn, mmn, _ = WaitNextMinute()
 		//	fmt.Printf("** %02d %02d\n", hhn, mmn)
 
-		if ( hhn + 1 ) % environment.IntervalHour == 0 && mmn == 0 {
+		if (hhn+1)%environment.IntervalHour == 0 && mmn == 0 {
 			log.Printf(" End of ExtractTaskGroup() t=%s\n", time.Now().Format("2006/1/2 15:04:05"))
 			break
 		}
@@ -801,18 +1000,19 @@ Outerloop:
 
 	return
 }
+
 /*
-	WaitNextMinute()
-	現在時の時分の次の時分までウェイトします。
-	現在時が11時12分10秒であれば、11時13分00秒までウェイトします。
+WaitNextMinute()
+現在時の時分の次の時分までウェイトします。
+現在時が11時12分10秒であれば、11時13分00秒までウェイトします。
 
-	引数
-	なし
+引数
+なし
 
-	戻り値
-	hhn		int		ウェイト終了後の時刻の時
-	mmn		int		ウェイト終了後の時刻の分
-	ssn		int		ウェイト終了後の時刻の秒
+戻り値
+hhn		int		ウェイト終了後の時刻の時
+mmn		int		ウェイト終了後の時刻の分
+ssn		int		ウェイト終了後の時刻の秒
 */
 func WaitNextMinute() (hhn, mmn, ssn int) {
 
@@ -834,7 +1034,6 @@ func WaitNextMinute() (hhn, mmn, ssn int) {
 
 	return
 }
-
 
 func main() {
 
