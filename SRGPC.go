@@ -47,6 +47,7 @@ import (
 	//	"database/sql"
 	//	_ "github.com/go-sql-driver/mysql"
 
+	"github.com/go-gorp/gorp"
 	"SRGPC/ShowroomDBlib"
 	//	"Showroomlib"
 
@@ -60,7 +61,7 @@ import (
 
 	"github.com/Chouette2100/exsrapi"
 	"github.com/Chouette2100/srapi"
-	//	"github.com/Chouette2100/srdblib"
+	"github.com/Chouette2100/srdblib"
 )
 
 /*
@@ -88,10 +89,15 @@ import (
 020AF00	標準出力へのログ出力をやめる。
 020AF01	標準出力への出力を削除する。
 030AA04	貢献ポイントの取得にAPIを用い、リスナーの突き合わせにはuseridを用いる。
+030AA05	引数のエラーがログファイルに出力されるようにする。
+030AA06	引数のエラーのチェックをやめる。
+030AB00	貢献ポイントを取得するときreturned empty rankingが発生した場合の（暫定）対策を行う
+030AB01	貢献ポイントを取得するときreturned empty rankingが発生した場合の対策を行う
+030AB02	Dbmapの設定誤りを修正する。
 
 */
 
-const version = "030AA04"
+const version = "030AB02"
 
 const UseApi = true
 
@@ -897,12 +903,30 @@ Outerloop:
 			var new_eventranking ShowroomDBlib.EventRanking
 			uidmap := make(map[int]int)
 			if UseApi {
+				//	APIを利用してリスナー別の貢献ポイントを取得する。
+				//	この方法ではリスナーの識別子を取得できる。
 				new_eventranking, uidmap, err = GetPointsContByApi(client, peventinf.I_Event_ID, userno)
 				if err != nil {
 					log.Printf("GetPointsContByApi(): %s", err.Error())
+					if strings.Contains(err.Error(), "returned empty ranking") {
+						//	貢献ポイントが取得できず、原因が"returned empty ranking"の場合
+						//	データ取得対象のルームが配信後貢献ポイントデータを取得する前にイベントへの参加を取り消したとき発生する
+						//	次回以後貢献ポイント取得を実行しないようにするためにはtimetableのstatusを2にセットすること。
+						updsql := "UPDATE timetable SET status = 2 WHERE eventid = ? and userid = ? and sampletm1 = ? "
+						_, err := srdblib.Dbmap.Exec(updsql, event_id, userno, sampletm1)
+						if err != nil {
+								err = fmt.Errorf("Dbmap.Exec(): %s", err.Error())
+								log.Printf("ExtractTask() err=%s\n", err.Error())
+								return
+						}
+				  
+						continue
+					}
 					break Outerloop
 				}
 			} else {
+				//	APIを使わずクロールでリスナー別の貢献ポイントを取得する。
+				//	APIが実装される前の方法で、リスナー識別子は取得できずリスナー名を突き合わせてリスナーを特定する必要がある。
 				_, new_eventranking, _ = GetPointsCont(event_id, room_id)
 			}
 
@@ -1037,11 +1061,6 @@ func WaitNextMinute() (hhn, mmn, ssn int) {
 
 func main() {
 
-	if len(os.Args) > 1 {
-		fmt.Println("Usage: ", os.Args[0])
-		return
-	}
-
 	logfilename := "GetPointsCont01" + "_" + version + "_" + ShowroomDBlib.Version + "_" + time.Now().Format("20060102") + ".txt"
 	logfile, err := os.OpenFile(logfilename, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0666)
 	if err != nil {
@@ -1054,6 +1073,15 @@ func main() {
 	log.Printf("\n")
 	log.Printf("\n")
 	log.Printf("************************ GetPointsCont01 Ver.%s *********************\n", version+"_"+ShowroomDBlib.Version)
+
+	/*
+	if len(os.Args) > 1 {
+		fmt.Println("Usage: ", os.Args[0])
+		log.Println("Usage: ", os.Args[0])
+		log.Printf("%v\n", os.Args)
+		return
+	}
+	*/
 
 	dbconfig, err := ShowroomDBlib.LoadConfig("ServerConfig.yml")
 	if err != nil {
@@ -1078,6 +1106,11 @@ func main() {
 		return
 	}
 	defer ShowroomDBlib.Db.Close()
+
+	dial := gorp.MySQLDialect{Engine: "InnoDB", Encoding: "utf8mb4"}
+	srdblib.Dbmap = &gorp.DbMap{Db: ShowroomDBlib.Db, Dialect: dial, ExpandSliceArgs: true}
+	srdblib.Dbmap.AddTableWithName(srdblib.Timetable{}, "timetable").SetKeys(false, "Eventid", "Userid", "Sampletm1")
+
 
 	ExtractTask(&environment)
 

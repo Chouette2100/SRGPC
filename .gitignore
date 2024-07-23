@@ -6,4 +6,7 @@
 _cookies
 go.*
 SRGPC
+SRGPC.err
+SRGPC.log
+SRGPC.0*
 SRGPC.2024*
