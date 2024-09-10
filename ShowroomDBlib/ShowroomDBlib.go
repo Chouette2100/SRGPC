@@ -36,8 +36,9 @@ Ver.2.0B01	timetableの更新で処理が終わっていないものを処理済
 Ver.2.0B01	timetableの更新で処理が終わっていないものを処理済みにしていた問題を修正する。
 Ver.2.0B02	Prepare()に対するdefer Close()の抜けを補う。
 Ver.3.0A00	SHOWROOMに新たに導入された貢献リスナーのユーザーIDがわかるAPIを利用して貢献ポイント算出の精度を上げる。
+Ver.3.0A01	接続先の指定にDbportを追加する。
 */
-const Version = "30A00"
+const Version = "30A01"
 
 type EventRank struct {
 	Order    int
@@ -76,6 +77,7 @@ type DBConfig struct {
 	SSLcrt    string `yaml:"SSLcrt"`
 	SSLkey    string `yaml:"SSLkey"`
 	Dbhost    string `yaml:"Dbhost"`
+	Dbport    string `yaml:"Dbport"`
 	Dbname    string `yaml:"Dbname"`
 	Dbuser    string `yaml:"Dbuser"`
 	Dbpw      string `yaml:"Dbpw"`
@@ -113,7 +115,8 @@ func OpenDb(dbconfig *DBConfig) (status int) {
 	if dbconfig.Dbhost == "" {
 		Db, Err = sql.Open("mysql", (*dbconfig).Dbuser+":"+(*dbconfig).Dbpw+"@/"+(*dbconfig).Dbname+"?parseTime=true&loc=Asia%2FTokyo")
 	} else {
-		Db, Err = sql.Open("mysql", (*dbconfig).Dbuser+":"+(*dbconfig).Dbpw+"@tcp("+(*dbconfig).Dbhost+":3306)/"+(*dbconfig).Dbname+"?parseTime=true&loc=Asia%2FTokyo")
+		//	Db, Err = sql.Open("mysql", (*dbconfig).Dbuser+":"+(*dbconfig).Dbpw+"@tcp("+(*dbconfig).Dbhost+":3306)/"+(*dbconfig).Dbname+"?parseTime=true&loc=Asia%2FTokyo")
+		Db, Err = sql.Open("mysql", (*dbconfig).Dbuser+":"+(*dbconfig).Dbpw+"@tcp("+(*dbconfig).Dbhost+":"+(*dbconfig).Dbport+")/"+(*dbconfig).Dbname+"?parseTime=true&loc=Asia%2FTokyo")
 	}
 
 	if Err != nil {
