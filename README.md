@@ -1,3 +1,5 @@
+※　システム全体の構成要素と各要素の整合性のとれるバージョンについては[SRCGI - README](https://github.com/Chouette2100/SRCGI/blob/main/README.md)にあります
+
 # SRGPC
 
 [『SHOWROOM イベント 獲得ポイント一覧』(5) 枠別貢献ポイントの取得](https://zenn.dev/chouette2100/books/d8c28f8ff426b7/viewer/4a1d15)
