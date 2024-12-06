@@ -94,10 +94,12 @@ import (
 030AB00	貢献ポイントを取得するときreturned empty rankingが発生した場合の（暫定）対策を行う
 030AB01	貢献ポイントを取得するときreturned empty rankingが発生した場合の対策を行う
 030AB02	Dbmapの設定誤りを修正する。
+3.0A01 接続先の指定にDbportを追加する。
+30AC00	V2.0.0系列で再ビルドする
 
 */
 
-const version = "030AB02"
+const version = "30AC00"
 
 const UseApi = true
 
