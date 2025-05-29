@@ -26,7 +26,7 @@ import (
 
 	_ "github.com/go-sql-driver/mysql"
 
-	"github.com/Chouette2100/exsrapi"
+	"github.com/Chouette2100/exsrapi/v2"
 )
 
 /*
@@ -37,8 +37,9 @@ Ver.2.0B01	timetableの更新で処理が終わっていないものを処理済
 Ver.2.0B02	Prepare()に対するdefer Close()の抜けを補う。
 Ver.3.0A00	SHOWROOMに新たに導入された貢献リスナーのユーザーIDがわかるAPIを利用して貢献ポイント算出の精度を上げる。
 Ver.3.0A01	接続先の指定にDbportを追加する。
+30AC00	パッケージをv2に変更する。ApiEventContribution_ranking()のエラーは時間をおいてリトライする
 */
-const Version = "30A01"
+const Version = "30AC00"
 
 type EventRank struct {
 	Order    int
@@ -410,4 +411,3 @@ func SelectFromEvent(eventid string) (
 
 	return
 }
-

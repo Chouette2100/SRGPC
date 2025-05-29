@@ -1,4 +1,5 @@
-/*!
+/*
+!
 Copyright © 2022 chouette.21.00@gmail.com
 Released under the MIT license
 https://opensource.org/licenses/mit-license.php
@@ -42,13 +43,17 @@ import (
 	//	"bufio"
 	//	"io"
 	//	"io/ioutil"
+	"context"
 	"os"
+	"os/signal"
+	"sync"
+	"syscall"
 
 	//	"database/sql"
 	//	_ "github.com/go-sql-driver/mysql"
 
-	"github.com/go-gorp/gorp"
 	"SRGPC/ShowroomDBlib"
+	"github.com/go-gorp/gorp"
 	//	"Showroomlib"
 
 	"github.com/PuerkitoBio/goquery"
@@ -59,9 +64,9 @@ import (
 	"github.com/360EntSecGroup-Skylar/excelize"
 	lsdp "github.com/deltam/go-lsd-parametrized"
 
-	"github.com/Chouette2100/exsrapi"
-	"github.com/Chouette2100/srapi"
-	"github.com/Chouette2100/srdblib"
+	"github.com/Chouette2100/exsrapi/v2"
+	"github.com/Chouette2100/srapi/v2"
+	"github.com/Chouette2100/srdblib/v2"
 )
 
 /*
@@ -95,11 +100,12 @@ import (
 030AB01	貢献ポイントを取得するときreturned empty rankingが発生した場合の対策を行う
 030AB02	Dbmapの設定誤りを修正する。
 3.0A01 接続先の指定にDbportを追加する。
-30AC00	V2.0.0系列で再ビルドする
+30AC01	パッケージをv2に変更する。ApiEventContribution_ranking()のエラーは時間をおいてリトライする。
+30AD00	グレイスフルシャットダウンを行う
 
 */
 
-const version = "30AC00"
+const version = "30AD00"
 
 const UseApi = true
 
@@ -203,7 +209,7 @@ func GetPointsContByApi(
 	uidmap = make(map[int]int)
 	for i, r := range pranking.Ranking {
 		er := ShowroomDBlib.EventRank{
-			Order:   i+1,
+			Order:   i + 1,
 			Rank:    r.Rank,
 			Listner: r.Name,
 			Point:   r.Point,
@@ -544,7 +550,7 @@ func ReadListInSheet(
 func CompareEventRankingByApi(
 	last_eventranking ShowroomDBlib.EventRanking,
 	new_eventranking ShowroomDBlib.EventRanking,
-	uidmap map[int] int,
+	uidmap map[int]int,
 ) (
 	final_eventranking ShowroomDBlib.EventRanking,
 	totalincremental int,
@@ -553,23 +559,23 @@ func CompareEventRankingByApi(
 	//	for j := 0; j < len(last_eventranking); j++ {
 	for j, ler := range last_eventranking {
 		if idx, ok := uidmap[ler.LsnID]; ok {
-					if ler.Point != -1 {
-						incremental := new_eventranking[idx].Point - ler.Point
-						totalincremental += incremental
-						last_eventranking[j].Incremental = incremental
-					} else {
-						last_eventranking[j].Incremental = -1
-					}
-					last_eventranking[j].Rank = new_eventranking[idx].Rank
-					last_eventranking[j].Point = new_eventranking[idx].Point
-					last_eventranking[j].Order = new_eventranking[idx].Order
-					if new_eventranking[idx].Listner == ler.Listner {
-							last_eventranking[j].Lastname = ""
-					} else {
-							last_eventranking[j].Listner = new_eventranking[idx].Listner
-							last_eventranking[j].Lastname = ler.Listner
-					}
-					new_eventranking[idx].Status = 1
+			if ler.Point != -1 {
+				incremental := new_eventranking[idx].Point - ler.Point
+				totalincremental += incremental
+				last_eventranking[j].Incremental = incremental
+			} else {
+				last_eventranking[j].Incremental = -1
+			}
+			last_eventranking[j].Rank = new_eventranking[idx].Rank
+			last_eventranking[j].Point = new_eventranking[idx].Point
+			last_eventranking[j].Order = new_eventranking[idx].Order
+			if new_eventranking[idx].Listner == ler.Listner {
+				last_eventranking[j].Lastname = ""
+			} else {
+				last_eventranking[j].Listner = new_eventranking[idx].Listner
+				last_eventranking[j].Lastname = ler.Listner
+			}
+			new_eventranking[idx].Status = 1
 		} else {
 			//	同一のuseridのデータがみつからなかった。
 			last_eventranking[j].Point = -1
@@ -586,7 +592,7 @@ func CompareEventRankingByApi(
 	//	つまり、ソートはExcelで行う。
 	var eventrank ShowroomDBlib.EventRank
 	no := len(last_eventranking)
-	for _, ner := range(new_eventranking) {
+	for _, ner := range new_eventranking {
 
 		if ner.Status != 1 {
 			eventrank.Order = no
@@ -847,6 +853,7 @@ func CompareEventRanking(
 }
 
 func ExtractTask(
+	sm *AppShutdownManager,
 	environment *Environment,
 	/*
 		bmakesheet bool,
@@ -859,6 +866,8 @@ func ExtractTask(
 	var hhn, mmn int
 	//	var event_id, room_id string
 	//	var bmakesheet bool
+
+	sm.Wg.Done()
 
 	bmakesheet := true
 
@@ -880,8 +889,24 @@ func ExtractTask(
 
 Outerloop:
 	for {
+		select {
+		case <-sm.Ctx.Done():
+			fmt.Println("Outer loop: Context cancelled, exiting.")
+			return
+		default:
+			// Contextはまだ有効
+		}
+
 		//	毎分繰り返す。
 		for {
+			select {
+			case <-sm.Ctx.Done():
+				fmt.Println("Inner loop: Context cancelled, exiting.")
+				return
+			default:
+				// Contextはまだ有効
+			}
+
 			//	リスナー別貢献ポイントの算出が必要な配信枠がなくなるまで繰り返す
 			ndata, event_id, userno, sampletm1 := ShowroomDBlib.SelectEidUidFromTimetable()
 			if ndata <= 0 {
@@ -917,14 +942,26 @@ Outerloop:
 						updsql := "UPDATE timetable SET status = 2 WHERE eventid = ? and userid = ? and sampletm1 = ? "
 						_, err := srdblib.Dbmap.Exec(updsql, event_id, userno, sampletm1)
 						if err != nil {
-								err = fmt.Errorf("Dbmap.Exec(): %s", err.Error())
-								log.Printf("ExtractTask() err=%s\n", err.Error())
-								return
+							err = fmt.Errorf("Dbmap.Exec(): %s", err.Error())
+							log.Printf("ExtractTask() err=%s\n", err.Error())
+							return
 						}
-				  
+
 						continue
 					}
-					break Outerloop
+					// break Outerloop
+					log.Printf(" ==== Wait 10 seconds and retry ==== \n")
+					// time.Sleep(10 * time.Second)
+					select {
+					case <-sm.Ctx.Done():
+						fmt.Println("Wait cancelled by context.")
+						// キャンセルされた場合の処理 (例: ループを抜ける)
+						return
+					case <-time.After(10 * time.Second):
+						fmt.Println("Wait finished.")
+						// 待機が完了した場合の処理
+						continue
+					}
 				}
 			} else {
 				//	APIを使わずクロールでリスナー別の貢献ポイントを取得する。
@@ -962,12 +999,12 @@ Outerloop:
 			var final_eventranking ShowroomDBlib.EventRanking
 			var totalincremental int
 			log.Printf("------------------- compare --------------------\n")
-				idx := ShowroomDBlib.SelectMaxTlsnidFromEventranking(event_id, userno) / 1000
-				if idx >= 1000 {
-					idx /= 1000
-				}
-				idx += 1
-			if len(last_eventranking) == 0 || new_eventranking[0].LsnID != 0 && last_eventranking[0].LsnID != 0 {	//	LsnIDを使わずに判別する方法は？
+			idx := ShowroomDBlib.SelectMaxTlsnidFromEventranking(event_id, userno) / 1000
+			if idx >= 1000 {
+				idx /= 1000
+			}
+			idx += 1
+			if len(last_eventranking) == 0 || new_eventranking[0].LsnID != 0 && last_eventranking[0].LsnID != 0 { //	LsnIDを使わずに判別する方法は？
 				//	新旧データともにAPIで取得したランキングである。
 				final_eventranking, totalincremental = CompareEventRankingByApi(last_eventranking, new_eventranking, uidmap)
 			} else {
@@ -994,7 +1031,6 @@ Outerloop:
 				}
 			}
 
-
 			if bmakesheet {
 
 				sampletm2 := time.Now().Truncate(time.Minute)
@@ -1012,7 +1048,28 @@ Outerloop:
 			}
 
 		}
-		hhn, mmn, _ = WaitNextMinute()
+		// hhn, mmn, _ = WaitNextMinute()
+		//	現在時（時分秒.....）
+		t0 := time.Now()
+		//	現在時（時分）
+		t0tm := t0.Truncate(1 * time.Minute)
+		//	次の時分（現在時が11時12分10秒であれば、11時13分00秒）
+		t0tm = t0tm.Add(1 * time.Minute)
+		//	次の時分までウェイトします。
+		dt := t0tm.Sub(t0)
+		// time.Sleep(dt + 100*time.Millisecond)
+		select {
+		case <-sm.Ctx.Done():
+			fmt.Println("Wait cancelled by context.")
+			// キャンセルされた場合の処理 (例: ループを抜ける)
+			return
+		case <-time.After(dt + 100*time.Millisecond):
+			fmt.Println("Wait finished.")
+			// 待機が完了した場合の処理
+		}
+		//	現在時を戻り値にセットします。
+		hhn, mmn, _ = time.Now().Clock()
+
 		//	fmt.Printf("** %02d %02d\n", hhn, mmn)
 
 		if (hhn+1)%environment.IntervalHour == 0 && mmn == 0 {
@@ -1061,6 +1118,41 @@ func WaitNextMinute() (hhn, mmn, ssn int) {
 	return
 }
 
+// シャットダウンに関連する状態をまとめた構造体
+type AppShutdownManager struct {
+	Ctx    context.Context
+	Cancel context.CancelFunc // トップレベルでのみ使うことが多いが、構造体に含めることも可能
+	Wg     *sync.WaitGroup
+	// 他のリソース（DB接続など）を含めることも可能
+	// DB *gorp.DbMap // 例
+}
+
+// CloseResources はシャットダウン処理とリソース解放を行います。
+// defer で呼び出されることを想定しています。
+func (sm *AppShutdownManager) CloseResources() {
+	log.Println("Closing resources...")
+
+	// コンテキストをキャンセルし、新しいgoroutineの起動を停止
+	// シグナル受信などで既に呼ばれている可能性もあるが、冪等なので問題ない
+	sm.Cancel()
+	log.Println("Context cancelled.")
+
+	// WaitGroupの完了を待つのは、通常main関数で行います。
+	// ここでWaitすると、CloseResourcesがブロックされてしまい、
+	// main関数がWaitする前にリソース解放が完了しない可能性があります。
+	// そのため、Waitはmain関数に任せるのが一般的です。
+
+	// 他のリソース解放処理
+	// if sm.DB != nil {
+	//      sm.DB.Db.Close() // gorpのDB接続をクローズ
+	//      fmt.Println("Database connection closed.")
+	// }
+	// 他のリソース解放処理
+	log.Println("Resources closed.")
+}
+
+// -------------------------------------------
+
 func main() {
 
 	logfilename := "GetPointsCont01" + "_" + version + "_" + ShowroomDBlib.Version + "_" + time.Now().Format("20060102") + ".txt"
@@ -1077,12 +1169,12 @@ func main() {
 	log.Printf("************************ GetPointsCont01 Ver.%s *********************\n", version+"_"+ShowroomDBlib.Version)
 
 	/*
-	if len(os.Args) > 1 {
-		fmt.Println("Usage: ", os.Args[0])
-		log.Println("Usage: ", os.Args[0])
-		log.Printf("%v\n", os.Args)
-		return
-	}
+		if len(os.Args) > 1 {
+			fmt.Println("Usage: ", os.Args[0])
+			log.Println("Usage: ", os.Args[0])
+			log.Printf("%v\n", os.Args)
+			return
+		}
 	*/
 
 	dbconfig, err := ShowroomDBlib.LoadConfig("ServerConfig.yml")
@@ -1090,7 +1182,7 @@ func main() {
 		log.Printf("ShowroomDBlib.LoadConfig() Error: %s\n", err.Error())
 		return
 	}
-	//	fmt.Printf("dbconfig: %v\n", dbconfig)
+	// log.Printf("dbconfig: %+v\n", dbconfig)
 
 	var environment Environment
 
@@ -1113,7 +1205,63 @@ func main() {
 	srdblib.Dbmap = &gorp.DbMap{Db: ShowroomDBlib.Db, Dialect: dial, ExpandSliceArgs: true}
 	srdblib.Dbmap.AddTableWithName(srdblib.Timetable{}, "timetable").SetKeys(false, "Eventid", "Userid", "Sampletm1")
 
+	// -------------------------------------
 
-	ExtractTask(&environment)
+	// 1. シグナル通知用のチャネルを作成
+	// バッファリングされたチャネルにすることで、シグナル受信と処理の間に少し余裕を持たせます。
+	sigCh := make(chan os.Signal, 1)
+	// SIGINT (Ctrl+C) と SIGTERM を補足するように設定
+	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+
+	// 2. 新しいgoroutineの起動を制御するためのコンテキスト
+	// context.WithCancel() でキャンセル可能なコンテキストを作成します。
+	ctx, cancel := context.WithCancel(context.Background())
+	// main関数が終了する際に確実にcancel()が呼ばれるようにdeferで設定
+	// (シグナル受信時にもcancel()を呼びますが、二重呼び出しは問題ありません)
+	// defer cancel() // (sm *AppShutdownManager) CloseResources()で呼び出されるので、ここでは不要)
+
+	// 3. 実行中のgoroutineを追跡するための WaitGroup
+	var wg sync.WaitGroup
+
+	// ShutdownManager インスタンスを作成
+	// DB接続などの初期化もここで行う
+	sm := &AppShutdownManager{
+		Ctx:    ctx,
+		Cancel: cancel,
+		Wg:     &wg,
+		// DB: initDB(), // 例
+	}
+	// main関数が終了する際に、リソース解放処理を確実に実行
+	// これにより、シグナル受信、エラー終了、正常終了のいずれの場合でも呼ばれる
+	defer sm.CloseResources()
+
+	// -------------------------------------
+
+	sm.Wg.Add(1)
+	go ExtractTask(sm, &environment)
+
+	// シグナル受信を待つ
+	<-sigCh
+	log.Println("\nシグナルを受信しました。")
+
+	// シグナル受信をトリガーとして、ShutdownManager経由でキャンセルを呼び出す
+	// これにより、Contextを監視しているgoroutineが終了を開始する
+	// deferされたCloseResourcesでもCancelは呼ばれるが、シグナル受信時に
+	// 即座にキャンセルをトリガーしたい場合はここで明示的に呼ぶ
+	// (CloseResources内でCancelを呼ぶ設計の場合は、ここでの明示的な呼び出しは不要)
+	// 今回はCloseResources内でCancelを呼ぶ設計なので、ここはコメントアウト
+	// sm.Cancel()
+	log.Println("シャットダウン処理を開始します。")
+
+	// ShutdownManager経由でWaitを呼び、実行中のすべてのgoroutineが終了するのを待つ
+	// Contextがキャンセルされた後、すべてのワーカーgoroutineがDone()を呼ぶのを待つ
+	log.Println("実行中のすべてのgoroutineが終了するのを待っています...")
+	sm.Wg.Wait()
+
+	// Wait()から戻ったら、すべてのgoroutineが終了したことになります。
+	// main関数が終了するため、defer sm.CloseResources() が呼ばれ、
+	// リソース解放処理が行われます。
+	log.Println("すべてのgoroutineが終了しました。")
+	// main関数が終了すると、deferが実行され、プログラムが終了します。
 
 }
