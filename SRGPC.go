@@ -102,10 +102,11 @@ import (
 3.0A01 接続先の指定にDbportを追加する。
 30AC01	パッケージをv2に変更する。ApiEventContribution_ranking()のエラーは時間をおいてリトライする。
 30AD00	グレイスフルシャットダウンを行う
+30AD01	fmt.Printf()を原則としてlog.Printf()に置き換える。ループでのウェイト時間の出力は行わない。
 
 */
 
-const version = "30AD00"
+const version = "30AD01"
 
 const UseApi = true
 
@@ -891,7 +892,7 @@ Outerloop:
 	for {
 		select {
 		case <-sm.Ctx.Done():
-			fmt.Println("Outer loop: Context cancelled, exiting.")
+			log.Println("Outer loop: Context cancelled, exiting.")
 			return
 		default:
 			// Contextはまだ有効
@@ -901,7 +902,7 @@ Outerloop:
 		for {
 			select {
 			case <-sm.Ctx.Done():
-				fmt.Println("Inner loop: Context cancelled, exiting.")
+				log.Println("Inner loop: Context cancelled, exiting.")
 				return
 			default:
 				// Contextはまだ有効
@@ -954,11 +955,11 @@ Outerloop:
 					// time.Sleep(10 * time.Second)
 					select {
 					case <-sm.Ctx.Done():
-						fmt.Println("Wait cancelled by context.")
+						log.Println("Wait cancelled by context.")
 						// キャンセルされた場合の処理 (例: ループを抜ける)
 						return
 					case <-time.After(10 * time.Second):
-						fmt.Println("Wait finished.")
+						log.Println("Wait finished.")
 						// 待機が完了した場合の処理
 						continue
 					}
@@ -1042,9 +1043,9 @@ Outerloop:
 
 			} else {
 				for i := 1; i < 100; i++ {
-					fmt.Printf(" (%d) %s", i, CtoA(i))
+					log.Printf(" (%d) %s", i, CtoA(i))
 				}
-				fmt.Printf(".\n")
+				log.Printf(".\n")
 			}
 
 		}
@@ -1060,17 +1061,17 @@ Outerloop:
 		// time.Sleep(dt + 100*time.Millisecond)
 		select {
 		case <-sm.Ctx.Done():
-			fmt.Println("Wait cancelled by context.")
+			log.Println("Wait cancelled by context.")
 			// キャンセルされた場合の処理 (例: ループを抜ける)
 			return
 		case <-time.After(dt + 100*time.Millisecond):
-			fmt.Println("Wait finished.")
+			// log.Println("Wait finished.")
 			// 待機が完了した場合の処理
 		}
 		//	現在時を戻り値にセットします。
 		hhn, mmn, _ = time.Now().Clock()
 
-		//	fmt.Printf("** %02d %02d\n", hhn, mmn)
+		//	log.Printf("** %02d %02d\n", hhn, mmn)
 
 		if (hhn+1)%environment.IntervalHour == 0 && mmn == 0 {
 			log.Printf(" End of ExtractTaskGroup() t=%s\n", time.Now().Format("2006/1/2 15:04:05"))
@@ -1145,7 +1146,7 @@ func (sm *AppShutdownManager) CloseResources() {
 	// 他のリソース解放処理
 	// if sm.DB != nil {
 	//      sm.DB.Db.Close() // gorpのDB接続をクローズ
-	//      fmt.Println("Database connection closed.")
+	//      log.Println("Database connection closed.")
 	// }
 	// 他のリソース解放処理
 	log.Println("Resources closed.")
